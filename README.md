@@ -40,6 +40,7 @@ to perform image fusion. The output fusion results will be saved in the ``'./out
 
 ### Results
 **Quantitative evaluation**
+
 | Methods | EN | SD | SF | AG | VIF | $Q^{AB/F}$ |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
 | LFDT | 6.65 | 43.05 | 11.23 | 3.63 | 1.02 | 0.69 |
@@ -52,4 +53,5 @@ to perform image fusion. The output fusion results will be saved in the ``'./out
 | Our | **6.73** | 43.22 | **11.95** | **3.96** | 1.04 | 0.72 |
 
 **Qualitative evaluation**
+
 <img src="img\MSRS.png" width="80%" align=center />
