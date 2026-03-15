@@ -1,5 +1,5 @@
 # FDFusion: Efficient text-guided infrared-visible image fusion via fine-tuned lightweight VLM and Dual-branch feature modeling
-Code and dataset for ***FDFusion.***
+Code and dataset for ***FDFusion (Infrared Physics & Technology 2026).***
 
 ## Information
 
@@ -15,16 +15,41 @@ Infrared-visible image fusion plays a crucial role in enhancing scene perception
 
 ### Network Architecture
 
-<img src="img\Framework.png" width="70%" align=center />
+<img src="img\Framework.png" width="80%" align=center />
 
 Our FDFusion is implemented in ``net/FDFusion.py``.
 
-### Running
+### Virtual Environment
+```
+conda create -n fdfusion python=3.9
+conda activate fdfusion
+pip install -r requirements.txt
+```
+
+### Data Preparation
 
 Download the processed dataset provided in our paper from [this link](https://drive.google.com/file/d/1Upbnds2mUWW_DxsNWZb_wEPmM7njgT-e/view?usp=drive_link). The corresponding DataLoader is in ``utils/H5_read.py``.
+
+### Running
 
 Please run 
 ```
 python test.py
 ``` 
 to perform image fusion. The output fusion results will be saved in the ``'./output/MSRS'``  folder.
+
+### Results
+**Quantitative evaluation**
+| Methods | EN | SD | SF | AG | VIF | $Q^{AB/F}$ |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| LFDT | 6.65 | 43.05 | 11.23 | 3.63 | 1.02 | 0.69 |
+| CDDFuse | 6.70 | **43.39** | 11.56 | 3.74 | 1.05 | 0.69 |
+| LRRNet | 6.19 | 31.78 | 8.46 | 2.63 | 0.54 | 0.46 |
+| DDBF | 5.97 | 28.42 | 8.55 | 2.78 | 0.63 | 0.58 |
+| CFNet | 6.63 | 42.23 | 10.30 | 3.40 | 0.68 | 0.50 |
+| SDCFusion | 6.72 | 42.66 | 11.83 | 3.94 | 1.03 | 0.70 |
+| FILM | 6.72 | 43.17 | 11.70 | 3.84 | **1.06** | **0.73** |
+| Our | **6.73** | 43.22 | **11.95** | **3.96** | 1.04 | 0.72 |
+
+**Qualitative evaluation**
+<img src="img\MSRS.png" width="80%" align=center />
