@@ -28,7 +28,7 @@ pip install -r requirements.txt
 
 ### Data Preparation
 
-Download the processed dataset provided in our paper from [this link](https://drive.google.com/file/d/1Upbnds2mUWW_DxsNWZb_wEPmM7njgT-e/view?usp=drive_link). The corresponding DataLoader is in ``utils/H5_read.py``.
+Download the processed dataset provided in our paper from [this link](https://drive.google.com/file/d/1Upbnds2mUWW_DxsNWZb_wEPmM7njgT-e/view?usp=drive_link) and place it in the ``VLFDataset_h5`` folder. The corresponding DataLoader is in ``utils/H5_read.py``.
 
 ### Running
 
