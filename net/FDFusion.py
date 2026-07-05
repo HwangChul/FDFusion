@@ -31,7 +31,7 @@ class imagefeature2textfeature(nn.Module):
     def forward(self, x):
         x = self.conv(x)
         x = F.interpolate(x, [288, 384], mode='nearest')
-        x = x.contiguous().view(x.size(0), x.size().numel() // x.size(0) // self.hidden_dim, self.hidden_dim)
+        x = x.contiguous().view(x.size(0), x.size().numel() // x.size(0) // self.hidden_dim, self.hidden_dim)       # reshape
         return x
 
 
@@ -126,7 +126,7 @@ class JCR(nn.Module):
         b, _, H, W = imageA.shape
 
         feaA = self.preluA1(self.convA1_1(imageA))
-        convA, resA = torch.split(feaA, (self.conv_dim, self.res_dim), dim=1)
+        convA, resA = torch.split(feaA, (self.conv_dim, self.res_dim), dim=1)           # b, c, H, W   1, 32, 288, 384  b, 10, him
         convA = self.denseA(convA)
         resA, sp, ch, attn0 = self.ramitA(resA)
         convAtotext = self.imageA2text_feature(convA)
@@ -145,13 +145,13 @@ class JCR(nn.Module):
 
 
         ca_A = self.cross_attentionA(textA, resAtotext, convAtotext)
-        ca_A = torch.nn.functional.adaptive_avg_pool1d(ca_A.permute(0, 2, 1), output_size=1).permute(0, 2, 1)
+        ca_A = torch.nn.functional.adaptive_avg_pool1d(ca_A.permute(0, 2, 1), output_size=1).permute(0, 2, 1)           # 300,  256
         ca_A = F.normalize(ca_A, p=1, dim=2)
         ca_A = (imageAtotext * ca_A).view(imageA.shape[0], self.image2text_dim, 288, 384)
         ca_A = F.interpolate(ca_A, [H, W], mode='nearest')
 
         ca_A = self.preluA3(self.convA3(
-            torch.cat((imageA, self.preluA2(self.convA2(ca_A) + imageA)), 1)))
+            torch.cat((imageA, self.preluA2(self.convA2(ca_A) + imageA)), 1)))      # concat
 
 
         ca_B = self.cross_attentionB(textB, resBtotext, convBtotext)
