@@ -1,4 +1,4 @@
-from utils.H5_read import H5ImageTextDataset
+from utils.H5_read import H5ImageTextDataset, BinaryDataset_withText_Mask
 from utils.img_read_save import img_save
 from net.FDFusion import Net
 import math
@@ -13,6 +13,8 @@ from scipy.signal import convolve2d
 from skimage.metrics import structural_similarity as ssim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import json
+
 sys.path.append(os.getcwd())
 warnings.filterwarnings("ignore")
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -320,11 +322,22 @@ def VIFF(image_F, image_A, image_B):
         vifpB = 1
     return vifpA + vifpB
 
-dataset_name = 'MSRS'
+dataset_name = 'LLVIP'
 
-testloader = DataLoader(H5ImageTextDataset(os.path.join('VLFDataset_h5', dataset_name + '_test_IR&VI_token_.h5')),
-                        batch_size=1, shuffle=True,
-                        num_workers=0)
+# testloader = DataLoader(H5ImageTextDataset(os.path.join('VLFDataset_h5', dataset_name + '_test_IR&VI_token_.h5')),
+#                         batch_size=1, shuffle=True,
+#                         num_workers=0)
+with open(os.path.join(r"./VLFDataset_h5", dataset_name + '_split.json'), "r") as f:
+    splits = json.load(f)
+
+testloader = DataLoader(
+    BinaryDataset_withText_Mask(os.path.join(r"./VLFDataset_h5", dataset_name + '_VI+IR+Mask+text.h5'),
+                                keys=splits['test'], dataset=dataset_name),
+    batch_size=1,
+    shuffle=True,
+    drop_last=True,
+    num_workers=0,
+)
 pth_epoch = 'ckpt_70'
 ckpt_path = os.path.join(r"./models", pth_epoch + '.pth')
 save_path = os.path.join(r"./output", dataset_name)
@@ -338,11 +351,11 @@ model.load_state_dict(torch.load(ckpt_path)['model'])
 model.eval()
 
 with torch.no_grad():
-    for data_IR, data_VIS, textA, textB, index in tqdm(testloader):
+    for data_IR, data_VIS, textA, textB, Mask, index in tqdm(testloader):
         textA = textA.squeeze(1).cuda()
         textB = textB.squeeze(1).cuda()
-        data_IR = torch.FloatTensor(data_IR)
-        data_VIS = torch.FloatTensor(data_VIS)
+        # data_IR = torch.FloatTensor(data_IR)
+        # data_VIS = torch.FloatTensor(data_VIS)
         data_VIS, data_IR = data_VIS.cuda(), data_IR.cuda()
         data_Fuse = model(data_IR, data_VIS, textA, textB)[0]
         data_Fuse = (data_Fuse - torch.min(data_Fuse)) / (torch.max(data_Fuse) - torch.min(data_Fuse))
@@ -368,7 +381,7 @@ evaluator_sum = {
     # "new_viff": 0
 }
 
-for data_IR, data_VIS, textA, textB, index in tqdm(testloader):
+for data_IR, data_VIS, textA, textB, mask, index in tqdm(testloader):
     vi = data_VIS.squeeze().numpy() * 255.0
     ir = data_IR.squeeze().numpy() * 255.0
     fi = image_read_cv2(os.path.join(save_path, index[0] + '.png'), 'GRAY')

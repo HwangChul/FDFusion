@@ -3,6 +3,7 @@ from torch.utils.data import Dataset
 import h5py
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
+import cv2
 
 
 class H5ImageTextDataset(Dataset):

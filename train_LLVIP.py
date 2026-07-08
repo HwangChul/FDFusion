@@ -141,22 +141,20 @@ save_code_files(os.path.basename(__file__), os.path.join(save_path, 'code'))
 Model initialization
 ------------------------------------------------------------------------------
 """
-model = Net(hidden_dim=hidden_dim, image2text_dim=i2t_dim)
+model = Net(hidden_dim=256, image2text_dim=32)
+model.to(device)
 
-
-optimizer_stage1 = torch.optim.AdamW(list(encoder.parameters()) + list(decoder_stage1.parameters()),
-                                    lr=lr, weight_decay=weight_decay)
-# scheduler_stage1 = torch.optim.lr_scheduler.StepLR(optimizer_stage1, step_size=optim_step, gamma=optim_gamma)
-scheduler_stage1 = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_stage1, T_max=num_epochs)
+optimizer_stage = torch.optim.AdamW(model.parameters(),lr=lr, weight_decay=weight_decay)
+# scheduler_stage = torch.optim.lr_scheduler.StepLR(optimizer_stage, step_size=optim_step, gamma=optim_gamma)
+scheduler_stage = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_stage, T_max=num_epochs)
 
 if pre_train_path != "":
     checkpoint_path = os.path.join('exp_LLVIP/', pre_train_path, 'model', f'ckpt_{str(pre_train_epoch)}.pth')
     checkpoint = torch.load(checkpoint_path)
     # 恢复模型、优化器和调度器的状态
-    encoder.load_state_dict(checkpoint['encoder'], strict=True)
-    decoder_stage1.load_state_dict(checkpoint['decoder_stage1'], strict=True)
-    optimizer_stage1.load_state_dict(checkpoint['optimizer_stage1'])
-    scheduler_stage1.load_state_dict(checkpoint['scheduler_stage1'])
+    model.load_state_dict(checkpoint['model'], strict=True)
+    optimizer_stage.load_state_dict(checkpoint['optimizer_stage'])
+    scheduler_stage.load_state_dict(checkpoint['scheduler_stage'])
     print('load_pretrain_model')
 
     # 恢复 epoch 和 step
@@ -170,7 +168,6 @@ Loss functions
 MSELoss = nn.MSELoss()
 fusion_loss = Fusionloss(coeff_grad=grad_wight, device=device)
 Loss_ssim = kornia.losses.SSIMLoss(11, reduction="mean")
-cbcr_loss = L_color().to(device)
 
 transform = transforms.Grayscale(num_output_channels=1)
 
@@ -182,8 +179,7 @@ Training loop
 sample_count = len(train_loader)
 prev_time = time.time()
 start_time = time.time()
-encoder.train()
-decoder_stage1.train()
+model.train()
 for epoch in range(start_epoch, num_epochs + 1):
     s_temp = time.time()
     lossALL_epoch = 0
@@ -197,9 +193,8 @@ for epoch in range(start_epoch, num_epochs + 1):
         text_IR = text_IR.squeeze(1).to(device)
         text_VIS = text_VIS.squeeze(1).to(device)
 
-        encoder.zero_grad()
-        decoder_stage1.zero_grad()
-        optimizer_stage1.zero_grad()
+        model.zero_grad()
+        optimizer_stage.zero_grad()
 
         fusion_image = model(image_IR, image_VIS, text_IR, text_VIS)
 
@@ -221,10 +216,9 @@ for epoch in range(start_epoch, num_epochs + 1):
         lossALL_ssim += ssim_loss.item()
 
         # 梯度裁剪
-        nn.utils.clip_grad_norm_(encoder.parameters(), max_norm=clip_grad_norm_value, norm_type=2)
-        nn.utils.clip_grad_norm_(decoder_stage1.parameters(), max_norm=clip_grad_norm_value, norm_type=2)
+        nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_grad_norm_value, norm_type=2)
         # 优化器更新
-        optimizer_stage1.step()
+        optimizer_stage.step()
 
         # 估计剩余时间并打印训练信息
         batches_done = epoch * sample_count + i
@@ -266,19 +260,18 @@ for epoch in range(start_epoch, num_epochs + 1):
     loss_logger.add_scalar('Train/Epoch_ssim_Loss', lossALL_ssim, epoch)
 
     # 学习率调整
-    scheduler_stage1.step()
+    scheduler_stage.step()
     # 学习率下限限制，防止过低
-    if optimizer_stage1.param_groups[0]["lr"] <= 1e-6:
-        optimizer_stage1.param_groups[0]["lr"] = 1e-6
+    if optimizer_stage.param_groups[0]["lr"] <= 1e-6:
+        optimizer_stage.param_groups[0]["lr"] = 1e-6
 
     # 定期保存模型
     # if epoch > 15:
     if epoch % 5 == 0:
         checkpoint = {
-            "encoder": encoder.state_dict(),
-            "decoder_stage1": decoder_stage1.state_dict(),
-            "optimizer_stage1": optimizer_stage1.state_dict(),
-            "scheduler_stage1": scheduler_stage1.state_dict(),
+            "model": model.state_dict(),
+            "optimizer_stage": optimizer_stage.state_dict(),
+            "scheduler_stage": scheduler_stage.state_dict(),
             "epoch": epoch,
             'step': step,
         }
