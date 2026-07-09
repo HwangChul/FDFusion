@@ -350,18 +350,18 @@ model = Net(hidden_dim=256).to(device)
 model.load_state_dict(torch.load(ckpt_path)['model'])
 model.eval()
 
-with torch.no_grad():
-    for data_IR, data_VIS, textA, textB, Mask, index in tqdm(testloader):
-        textA = textA.squeeze(1).cuda()
-        textB = textB.squeeze(1).cuda()
-        # data_IR = torch.FloatTensor(data_IR)
-        # data_VIS = torch.FloatTensor(data_VIS)
-        data_VIS, data_IR = data_VIS.cuda(), data_IR.cuda()
-        data_Fuse = model(data_IR, data_VIS, textA, textB)[0]
-        data_Fuse = (data_Fuse - torch.min(data_Fuse)) / (torch.max(data_Fuse) - torch.min(data_Fuse))
-        fi = np.squeeze((data_Fuse * 255).detach().cpu().numpy())
-        fi = fi.astype('uint8')
-        img_save(fi, index[0], save_path)
+# with torch.no_grad():
+    # for data_IR, data_VIS, textA, textB, Mask, index in tqdm(testloader):
+    #     textA = textA.squeeze(1).cuda()
+    #     textB = textB.squeeze(1).cuda()
+    #     # data_IR = torch.FloatTensor(data_IR)
+    #     # data_VIS = torch.FloatTensor(data_VIS)
+    #     data_VIS, data_IR = data_VIS.cuda(), data_IR.cuda()
+    #     data_Fuse = model(data_IR, data_VIS, textA, textB)[0]
+    #     data_Fuse = (data_Fuse - torch.min(data_Fuse)) / (torch.max(data_Fuse) - torch.min(data_Fuse))
+    #     fi = np.squeeze((data_Fuse * 255).detach().cpu().numpy())
+    #     fi = fi.astype('uint8')
+    #     img_save(fi, index[0], save_path)
 
 
 print("-------------------评估开始-------------------")
@@ -380,7 +380,7 @@ evaluator_sum = {
     "SSIM": 0,
     # "new_viff": 0
 }
-
+save_path = r"D:\Code\Python\Comparative\SDCFusion-main\res\LLVIP"
 for data_IR, data_VIS, textA, textB, mask, index in tqdm(testloader):
     vi = data_VIS.squeeze().numpy() * 255.0
     ir = data_IR.squeeze().numpy() * 255.0
@@ -390,14 +390,14 @@ for data_IR, data_VIS, textA, textB, mask, index in tqdm(testloader):
     evaluator_sum["SD"] += Evaluator.SD(fi)
     evaluator_sum["SF"] += Evaluator.SF(fi)
     evaluator_sum["AG"] += Evaluator.AG(fi)
-    evaluator_sum["MI"] += Evaluator.MI(fi, ir, vi)
-    evaluator_sum["MSE"] += Evaluator.MSE(fi, ir, vi)
-    evaluator_sum["CC"] += Evaluator.CC(fi, ir, vi)
-    evaluator_sum["PSNR"] += Evaluator.PSNR(fi, ir, vi)
-    evaluator_sum["SCD"] += Evaluator.SCD(fi, ir, vi)
+    # evaluator_sum["MI"] += Evaluator.MI(fi, ir, vi)
+    # evaluator_sum["MSE"] += Evaluator.MSE(fi, ir, vi)
+    # evaluator_sum["CC"] += Evaluator.CC(fi, ir, vi)
+    # evaluator_sum["PSNR"] += Evaluator.PSNR(fi, ir, vi)
+    # evaluator_sum["SCD"] += Evaluator.SCD(fi, ir, vi)
     evaluator_sum["VIFF"] += Evaluator.VIFF(fi, ir, vi)
     evaluator_sum["Qabf"] += Evaluator.Qabf(fi, ir, vi)
-    evaluator_sum["SSIM"] += Evaluator.SSIM(fi, ir, vi)
+    # evaluator_sum["SSIM"] += Evaluator.SSIM(fi, ir, vi)
 
 evaluator_avg = {key: value / len(testloader) for key, value in evaluator_sum.items()}
 
