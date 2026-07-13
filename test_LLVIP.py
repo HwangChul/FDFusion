@@ -326,7 +326,7 @@ def VIFF(image_F, image_A, image_B):
 
 
 parser = argparse.ArgumentParser(description="Test FDFusion on LLVIP dataset")
-parser.add_argument('--model_path', type=str, default='exp_LLVIP/07-09-11-41_lr_0.0001_module__batch_1', help='Path to the pre-trained model')
+parser.add_argument('--model_path', type=str, default='07-09-11-41_lr_0.0001_module__batch_1', help='Path to the pre-trained model')
 parser.add_argument('--dataset_name', type=str, default='LLVIP', help='Name of the dataset')
 parser.add_argument('--pth_epoch', type=str, default='70', help='Checkpoint epoch to load')
 args = parser.parse_args()
@@ -347,7 +347,7 @@ testloader = DataLoader(
 )
 
 
-ckpt_path = os.path.join(model_path, "model", "ckpt_" + pth_epoch + '.pth')
+ckpt_path = os.path.join(r'./exp_LLVIP', model_path, "model", "ckpt_" + pth_epoch + '.pth')
 save_path = os.path.join(r"./output", model_path, "model", "ckpt_" + pth_epoch)
 os.makedirs(save_path, exist_ok=True)
 
