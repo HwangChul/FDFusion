@@ -15,7 +15,9 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import json
 import argparse
-
+import pandas as pd
+import os
+import openpyxl
 
 sys.path.append(os.getcwd())
 warnings.filterwarnings("ignore")
@@ -348,68 +350,80 @@ testloader = DataLoader(
 
 
 ckpt_path = os.path.join(r'./exp_LLVIP', model_path, "model", "ckpt_" + pth_epoch + '.pth')
-save_path = os.path.join(r"./output", model_path, "ckpt_" + pth_epoch)
+save_path = os.path.join(r"./output", dataset_name, model_path, "ckpt_" + pth_epoch)
 os.makedirs(save_path, exist_ok=True)
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-model = Net(hidden_dim=256).to(device)
+
+print("-------------------评估开始-------------------")
+evaluator_sum = {
+    "EN": 0,
+    "SD": 0,
+    "SF": 0,
+    "AG": 0,
+    "MI": 0,
+    "MSE": 0,
+    "CC": 0,
+    "PSNR": 0,
+    "SCD": 0,
+    "VIFF": 0,
+    "Qabf": 0,
+    "SSIM": 0,
+    # "new_viff": 0
+}
+for data_IR, data_VIS, textA, textB, mask, index in tqdm(testloader):
+    vi = data_VIS.squeeze().numpy() * 255.0
+    ir = data_IR.squeeze().numpy() * 255.0
+    fi = image_read_cv2(os.path.join(save_path, index[0] + '.png'), 'GRAY')
+
+    evaluator_sum["EN"] += Evaluator.EN(fi)
+    evaluator_sum["SD"] += Evaluator.SD(fi)
+    evaluator_sum["SF"] += Evaluator.SF(fi)
+    evaluator_sum["AG"] += Evaluator.AG(fi)
+    # evaluator_sum["MI"] += Evaluator.MI(fi, ir, vi)
+    # evaluator_sum["MSE"] += Evaluator.MSE(fi, ir, vi)
+    # evaluator_sum["CC"] += Evaluator.CC(fi, ir, vi)
+    # evaluator_sum["PSNR"] += Evaluator.PSNR(fi, ir, vi)
+    # evaluator_sum["SCD"] += Evaluator.SCD(fi, ir, vi)
+    evaluator_sum["VIFF"] += Evaluator.VIFF(fi, ir, vi)
+    evaluator_sum["Qabf"] += Evaluator.Qabf(fi, ir, vi)
+    # evaluator_sum["SSIM"] += Evaluator.SSIM(fi, ir, vi)
+
+evaluator_avg = {key: value / len(testloader) for key, value in evaluator_sum.items()}
+
+print("平均评估结果：")
+for key, value in evaluator_avg.items():
+    print(f"{key}: {value}")
 
 
-model.load_state_dict(torch.load(ckpt_path)['model'])
-model.eval()
+def save_results_to_excel(results, epoch, filename="results.xlsx", sheet_name="llvip"):
+    """
+    results: 包含评估指标的字典，如 {'EN': 6.73, 'SD': 43.22, ...}
+    epoch: 当前的 epoch 编号
+    """
+    # 1. 将结果转化为 DataFrame，并添加 epoch 列
+    df_new = pd.DataFrame([results])
+    df_new.insert(0, 'epoch', epoch)
+    
+    # 2. 如果文件不存在，直接创建；如果存在，读取并追加
+    if not os.path.exists(filename):
+        # 创建一个 Excel writer，写入 sheet
+        with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+            df_new.to_excel(writer, sheet_name=sheet_name, index=False)
+    else:
+        # 读取已有的 excel
+        book = openpyxl.load_workbook(filename)
+        
+        if sheet_name in book.sheetnames:
+            # 读取 sheet 并追加数据
+            df_old = pd.read_excel(filename, sheet_name=sheet_name)
+            df_combined = pd.concat([df_old, df_new], ignore_index=True)
+            with pd.ExcelWriter(filename, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+                df_combined.to_excel(writer, sheet_name=sheet_name, index=False)
+        else:
+            # 如果 sheet 不存在，则直接写入新 sheet
+            with pd.ExcelWriter(filename, engine='openpyxl', mode='a') as writer:
+                df_new.to_excel(writer, sheet_name=sheet_name, index=False)
 
-with torch.no_grad():
-    for data_IR, data_VIS, textA, textB, Mask, index in tqdm(testloader):
-        textA = textA.squeeze(1).cuda()
-        textB = textB.squeeze(1).cuda()
-        # data_IR = torch.FloatTensor(data_IR)
-        # data_VIS = torch.FloatTensor(data_VIS)
-        data_VIS, data_IR = data_VIS.cuda(), data_IR.cuda()
-        data_Fuse = model(data_IR, data_VIS, textA, textB)[0]
-        data_Fuse = (data_Fuse - torch.min(data_Fuse)) / (torch.max(data_Fuse) - torch.min(data_Fuse))
-        fi = np.squeeze((data_Fuse * 255).detach().cpu().numpy())
-        fi = fi.astype('uint8')
-        img_save(fi, index[0], save_path)
 
 
-# print("-------------------评估开始-------------------")
-# evaluator_sum = {
-#     "EN": 0,
-#     "SD": 0,
-#     "SF": 0,
-#     "AG": 0,
-#     "MI": 0,
-#     "MSE": 0,
-#     "CC": 0,
-#     "PSNR": 0,
-#     "SCD": 0,
-#     "VIFF": 0,
-#     "Qabf": 0,
-#     "SSIM": 0,
-#     # "new_viff": 0
-# }
-# save_path = r"D:\Code\Python\Comparative\SDCFusion-main\res\LLVIP"
-# for data_IR, data_VIS, textA, textB, mask, index in tqdm(testloader):
-#     vi = data_VIS.squeeze().numpy() * 255.0
-#     ir = data_IR.squeeze().numpy() * 255.0
-#     fi = image_read_cv2(os.path.join(save_path, index[0] + '.png'), 'GRAY')
-
-#     evaluator_sum["EN"] += Evaluator.EN(fi)
-#     evaluator_sum["SD"] += Evaluator.SD(fi)
-#     evaluator_sum["SF"] += Evaluator.SF(fi)
-#     evaluator_sum["AG"] += Evaluator.AG(fi)
-#     # evaluator_sum["MI"] += Evaluator.MI(fi, ir, vi)
-#     # evaluator_sum["MSE"] += Evaluator.MSE(fi, ir, vi)
-#     # evaluator_sum["CC"] += Evaluator.CC(fi, ir, vi)
-#     # evaluator_sum["PSNR"] += Evaluator.PSNR(fi, ir, vi)
-#     # evaluator_sum["SCD"] += Evaluator.SCD(fi, ir, vi)
-#     evaluator_sum["VIFF"] += Evaluator.VIFF(fi, ir, vi)
-#     evaluator_sum["Qabf"] += Evaluator.Qabf(fi, ir, vi)
-#     # evaluator_sum["SSIM"] += Evaluator.SSIM(fi, ir, vi)
-
-# evaluator_avg = {key: value / len(testloader) for key, value in evaluator_sum.items()}
-
-# print("平均评估结果：")
-# for key, value in evaluator_avg.items():
-#     print(f"{key}: {value}")
-
+save_results_to_excel(evaluator_avg, pth_epoch, filename="fusion_results.xlsx")
