@@ -63,6 +63,7 @@ parser.add_argument("--pre_train_path", type=str, default=r"")
 parser.add_argument("--pre_train_epoch", type=int, default=None)
 parser.add_argument("--mode", type=str, default="gray")
 parser.add_argument("--ssim_wight", type=float, default=1)
+parser.add_argument("--int_wight", type=float, default=1)
 parser.add_argument("--grad_wight", type=float, default=20)
 parser.add_argument("--num_epochs", type=int, default=80)
 parser.add_argument("--start_epoch", type=int, default=1)
@@ -80,6 +81,7 @@ pre_train_path = args.pre_train_path
 pre_train_epoch = args.pre_train_epoch
 mode = args.mode
 ssim_wight = args.ssim_wight
+int_wight = args.int_wight
 grad_wight = args.grad_wight
 num_epochs = args.num_epochs
 start_epoch = args.start_epoch
@@ -166,7 +168,7 @@ Loss functions
 ------------------------------------------------------------------------------
 """
 MSELoss = nn.MSELoss()
-fusion_loss = Fusionloss(coeff_grad=grad_wight, device=device)
+fusion_loss = Fusionloss(coeff_int=int_wight, coeff_grad=grad_wight, device=device)
 Loss_ssim = kornia.losses.SSIMLoss(11, reduction="mean")
 
 transform = transforms.Grayscale(num_output_channels=1)
@@ -181,6 +183,8 @@ prev_time = time.time()
 start_time = time.time()
 model.train()
 for epoch in range(start_epoch, num_epochs + 1):
+    if epoch == 51:
+        break
     s_temp = time.time()
     lossALL_epoch = 0
     lossALL_ssim = 0
