@@ -1,15 +1,10 @@
 #!/bin/bash
-sudo /usr/bin/shutdown -h now
-eval "$(conda shell.bash hook)"
-
-
-conda activate imperio
 
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 cd "$SCRIPT_DIR/.."
 
-int_wights=("0.1" "5" "10")
+int_wights=("5" "10")
 grad_wights=("5" "10" "50")
 
 for int_wight in "${int_wights[@]}"
@@ -25,3 +20,5 @@ do
     python train_LLVIP.py --int_wight 1 --grad_wight "$grad_wight" --module "1, $grad_wight"
     echo "--------------------------"
 done
+
+/usr/bin/shutdown -h now
