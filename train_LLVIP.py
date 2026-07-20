@@ -183,7 +183,7 @@ prev_time = time.time()
 start_time = time.time()
 model.train()
 for epoch in range(start_epoch, num_epochs + 1):
-    if epoch == 51:
+    if epoch == 36:
         break
     s_temp = time.time()
     lossALL_epoch = 0
@@ -296,4 +296,4 @@ end_time = time.time()
 logger.log_and_print("total_time: " + str(end_time - start_time))
 
 loss_logger.close()
-os.system("/usr/bin/shutdown")
+# os.system("/usr/bin/shutdown")

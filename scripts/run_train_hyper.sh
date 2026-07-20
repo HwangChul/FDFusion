@@ -1,5 +1,5 @@
 #!/bin/bash
-
+sudo /usr/bin/shutdown -h now
 eval "$(conda shell.bash hook)"
 
 
