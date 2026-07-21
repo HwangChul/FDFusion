@@ -23,7 +23,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from net.FDFusion import Net
+from net.FDFusion_ablation import ABLATION_MODES, Net, normalize_ablation_mode
 from utils.H5_read import BinaryDataset_withText_Mask
 from utils.Logger import Logger1
 from utils.loss import Fusionloss, L_color, PixelwiseColorAngleLoss
@@ -75,6 +75,13 @@ parser.add_argument("--clip_grad_norm_value", type=float, default=0.01)
 parser.add_argument("--optim_step", type=int, default=10)
 parser.add_argument("--optim_gamma", type=float, default=0.7)
 parser.add_argument("--module", type=str, default="")
+parser.add_argument(
+    "--ablation",
+    type=normalize_ablation_mode,
+    choices=ABLATION_MODES,
+    default="full",
+    help="Ablation variant: full, wo_teb, wo_ceb, or wo_clma. Also accepts e.g. 'w/o CEB'.",
+)
 args = parser.parse_args()
 
 pre_train_path = args.pre_train_path
@@ -93,6 +100,7 @@ clip_grad_norm_value = args.clip_grad_norm_value
 optim_step = args.optim_step
 optim_gamma = args.optim_gamma
 module = args.module
+ablation = args.ablation
 """
 ------------------------------------------------------------------------------
 Data loader
@@ -118,7 +126,7 @@ else:
             str(module) + '_batch_%s' % (str(batch_size)))
 logger = Logger1(rootpath=save_path, timestamp=False)
 logger.new_subfolder('model')
-log_dir = os.path.join(r'/root/tf-logs/stage1/', f"{str(timestamp)}_{module}")
+log_dir = os.path.join(r'/root/tf-logs/FDFusion_LLVIP/', f"{str(timestamp)}_{module}")
 loss_logger = SummaryWriter(log_dir=log_dir)
 
 
@@ -143,7 +151,7 @@ save_code_files(os.path.basename(__file__), os.path.join(save_path, 'code'))
 Model initialization
 ------------------------------------------------------------------------------
 """
-model = Net(hidden_dim=256, image2text_dim=32)
+model = Net(hidden_dim=256, image2text_dim=32, ablation=ablation)
 model.to(device)
 
 optimizer_stage = torch.optim.AdamW(model.parameters(),lr=lr, weight_decay=weight_decay)
