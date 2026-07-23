@@ -56,7 +56,7 @@ testloader = DataLoader(
 
 
 ckpt_path = os.path.join(r'./exp_LLVIP', model_path, "model", "ckpt_" + pth_epoch + '.pth')
-save_path = os.path.join(r"./output", dataset_name, model_path, "ckpt_" + pth_epoch)
+save_path = os.path.join(r"./output", model_path, "ckpt_" + pth_epoch)
 os.makedirs(save_path, exist_ok=True)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
