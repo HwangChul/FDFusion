@@ -1,6 +1,6 @@
 from utils.H5_read import H5ImageTextDataset, BinaryDataset_withText_Mask
 from utils.img_read_save import img_save
-from net.FDFusion import Net
+from net.FDFusion_ablation import ABLATION_MODES, Net, normalize_ablation_mode
 import math
 import os
 import sys
@@ -28,11 +28,19 @@ torch.backends.cuda.enable_flash_sdp(False)
 parser = argparse.ArgumentParser(description="Test FDFusion on LLVIP dataset")
 parser.add_argument('--model_path', type=str, default='07-09-11-41_lr_0.0001_module__batch_1', help='Path to the pre-trained model')
 parser.add_argument('--dataset_name', type=str, default='LLVIP', help='Name of the dataset')
-parser.add_argument('--pth_epoch', type=str, default='70', help='Checkpoint epoch to load')
+parser.add_argument('--pth_epoch', type=str, default='35', help='Checkpoint epoch to load')
+parser.add_argument(
+    "--ablation",
+    type=normalize_ablation_mode,
+    choices=ABLATION_MODES,
+    default="full",
+    help="Ablation variant: full, wo_teb, wo_ceb, or wo_clma. Also accepts e.g. 'w/o CEB'.",
+)
 args = parser.parse_args()
 model_path = args.model_path
 dataset_name = args.dataset_name
 pth_epoch = args.pth_epoch
+ablation = args.ablation
 
 with open(os.path.join(r"./VLFDataset_h5", dataset_name + '_split.json'), "r") as f:
     splits = json.load(f)
@@ -52,7 +60,7 @@ save_path = os.path.join(r"./output", dataset_name, model_path, "ckpt_" + pth_ep
 os.makedirs(save_path, exist_ok=True)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-model = Net(hidden_dim=256).to(device)
+model = Net(hidden_dim=256, image2text_dim=32, ablation=ablation).to(device)
 
 
 model.load_state_dict(torch.load(ckpt_path)['model'])

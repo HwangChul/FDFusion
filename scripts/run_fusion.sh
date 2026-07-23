@@ -3,11 +3,22 @@
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 cd "$SCRIPT_DIR/.."
 
-epochs=("20" "30" "40" "50" "60" "70")
 
-for epoch in "${epochs[@]}"
+ablations=("wo_teb" "wo_ceb" "wo_clma")
+
+for ablation in "${ablations[@]}"
 do
-    echo "正在测试 Epoch: $epoch"
-    python fusion_LLVIP.py --pth_epoch "$epoch"
+    echo "正在测试 ablations: $ablation"
+    path = "model/"
+    python fusion_LLVIP.py --ablations "wo_teb" --model_path $path$ablation
+    echo "--------------------------"
+done
+
+model_paths=("model/0.1,20" "model/1,5" "model/1,10" "model/1,50" "model/5,20" "model/10,20")
+
+for model_path in "${model_paths[@]}"
+do
+    echo "正在测试 model_path: $model_path"
+    python fusion_LLVIP.py --model_path "$model_path"
     echo "--------------------------"
 done
