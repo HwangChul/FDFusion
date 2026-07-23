@@ -5,12 +5,12 @@ cd "$SCRIPT_DIR/.."
 
 
 ablations=("wo_teb" "wo_ceb" "wo_clma")
+path="model/"
 
 for ablation in "${ablations[@]}"
 do
-    echo "正在测试 ablations: $ablation"
-    path = "model/"
-    python fusion_LLVIP.py --ablations "wo_teb" --model_path $path$ablation
+    echo "正在测试 ablation: $ablation"
+    python fusion_LLVIP.py --ablation "wo_teb" --model_path $path$ablation
     echo "--------------------------"
 done
 
@@ -22,3 +22,5 @@ do
     python fusion_LLVIP.py --model_path "$model_path"
     echo "--------------------------"
 done
+
+/usr/bin/shutdown -h now
