@@ -6,7 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-for ablation in full wo_teb wo_ceb wo_clma; do
+for ablation in wo_teb wo_ceb wo_clma; do
     echo "Starting ablation: ${ablation}"
     python train_LLVIP.py --ablation "$ablation" --module "$ablation"
 done
