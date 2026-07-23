@@ -10,7 +10,7 @@ path="model/"
 for ablation in "${ablations[@]}"
 do
     echo "正在测试 ablation: $ablation"
-    python fusion_LLVIP.py --ablation "wo_teb" --model_path $path$ablation
+    python fusion_LLVIP.py --ablation "$ablation" --model_path $path$ablation
     echo "--------------------------"
 done
 
