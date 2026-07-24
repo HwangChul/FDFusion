@@ -1,4 +1,4 @@
-from utils.H5_read import H5ImageTextDataset
+from utils.H5_read import H5ImageTextDataset, BinaryDataset_withText_Mask
 from utils.img_read_save import img_save
 from net.FDFusion import Net
 import math
@@ -13,6 +13,10 @@ from scipy.signal import convolve2d
 from skimage.metrics import structural_similarity as ssim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import json
+import argparse
+
+
 sys.path.append(os.getcwd())
 warnings.filterwarnings("ignore")
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -320,14 +324,32 @@ def VIFF(image_F, image_A, image_B):
         vifpB = 1
     return vifpA + vifpB
 
-dataset_name = 'MSRS'
+parser = argparse.ArgumentParser(description="Test FDFusion on datasets")
+parser.add_argument('--model_path', type=str, default='07-09-11-41_lr_0.0001_module__batch_1', help='Path to the pre-trained model')
+parser.add_argument('--dataset_name', type=str, default='MSRS', help='Name of the dataset')
+parser.add_argument('--pth_epoch', type=str, default='50', help='Checkpoint epoch to load')
+args = parser.parse_args()
+model_path = args.model_path
+dataset_name = args.dataset_name
+pth_epoch = args.pth_epoch
 
-testloader = DataLoader(H5ImageTextDataset(os.path.join('VLFDataset_h5', dataset_name + '_test_IR&VI_token_.h5')),
-                        batch_size=1, shuffle=True,
-                        num_workers=0)
-pth_epoch = 'ckpt_70'
-ckpt_path = os.path.join(r"./models", pth_epoch + '.pth')
-save_path = os.path.join(r"./output", dataset_name)
+# testloader = DataLoader(H5ImageTextDataset(os.path.join('VLFDataset_h5', dataset_name + '_test_IR&VI_token_.h5')),
+#                         batch_size=1, shuffle=True,
+#                         num_workers=0)
+with open(os.path.join(r"./VLFDataset_h5", dataset_name + '_split.json'), "r") as f:
+    splits = json.load(f)
+
+testloader = DataLoader(
+    BinaryDataset_withText_Mask(os.path.join(r"./VLFDataset_h5", dataset_name + '_VI+IR+Mask+text.h5'),
+                                keys=splits['test'], dataset=dataset_name),
+    batch_size=1,
+    shuffle=True,
+    drop_last=True,
+    num_workers=0,
+)
+
+ckpt_path = os.path.join(r'./exp_LLVIP', model_path, "model", "ckpt_" + pth_epoch + '.pth')
+save_path = os.path.join(r"./output", dataset_name, model_path, "ckpt_" + pth_epoch)
 os.makedirs(save_path, exist_ok=True)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -338,11 +360,11 @@ model.load_state_dict(torch.load(ckpt_path)['model'])
 model.eval()
 
 with torch.no_grad():
-    for data_IR, data_VIS, textA, textB, index in tqdm(testloader):
+    for data_IR, data_VIS, textA, textB, Mask, index in tqdm(testloader):
         textA = textA.squeeze(1).cuda()
         textB = textB.squeeze(1).cuda()
-        data_IR = torch.FloatTensor(data_IR)
-        data_VIS = torch.FloatTensor(data_VIS)
+        # data_IR = torch.FloatTensor(data_IR)
+        # data_VIS = torch.FloatTensor(data_VIS)
         data_VIS, data_IR = data_VIS.cuda(), data_IR.cuda()
         data_Fuse = model(data_IR, data_VIS, textA, textB)[0]
         data_Fuse = (data_Fuse - torch.min(data_Fuse)) / (torch.max(data_Fuse) - torch.min(data_Fuse))
@@ -368,7 +390,7 @@ evaluator_sum = {
     # "new_viff": 0
 }
 
-for data_IR, data_VIS, textA, textB, index in tqdm(testloader):
+for data_IR, data_VIS, textA, textB, mask, index in tqdm(testloader):
     vi = data_VIS.squeeze().numpy() * 255.0
     ir = data_IR.squeeze().numpy() * 255.0
     fi = image_read_cv2(os.path.join(save_path, index[0] + '.png'), 'GRAY')
@@ -377,14 +399,14 @@ for data_IR, data_VIS, textA, textB, index in tqdm(testloader):
     evaluator_sum["SD"] += Evaluator.SD(fi)
     evaluator_sum["SF"] += Evaluator.SF(fi)
     evaluator_sum["AG"] += Evaluator.AG(fi)
-    evaluator_sum["MI"] += Evaluator.MI(fi, ir, vi)
-    evaluator_sum["MSE"] += Evaluator.MSE(fi, ir, vi)
-    evaluator_sum["CC"] += Evaluator.CC(fi, ir, vi)
-    evaluator_sum["PSNR"] += Evaluator.PSNR(fi, ir, vi)
-    evaluator_sum["SCD"] += Evaluator.SCD(fi, ir, vi)
+    # evaluator_sum["MI"] += Evaluator.MI(fi, ir, vi)
+    # evaluator_sum["MSE"] += Evaluator.MSE(fi, ir, vi)
+    # evaluator_sum["CC"] += Evaluator.CC(fi, ir, vi)
+    # evaluator_sum["PSNR"] += Evaluator.PSNR(fi, ir, vi)
+    # evaluator_sum["SCD"] += Evaluator.SCD(fi, ir, vi)
     evaluator_sum["VIFF"] += Evaluator.VIFF(fi, ir, vi)
     evaluator_sum["Qabf"] += Evaluator.Qabf(fi, ir, vi)
-    evaluator_sum["SSIM"] += Evaluator.SSIM(fi, ir, vi)
+    # evaluator_sum["SSIM"] += Evaluator.SSIM(fi, ir, vi)
 
 evaluator_avg = {key: value / len(testloader) for key, value in evaluator_sum.items()}
 

@@ -1,0 +1,429 @@
+from utils.H5_read import H5ImageTextDataset, BinaryDataset_withText_Mask
+from utils.img_read_save import img_save
+from net.FDFusion import Net
+import math
+import os
+import sys
+import warnings
+import cv2
+import numpy as np
+import sklearn.metrics as skm
+import torch
+from scipy.signal import convolve2d
+from skimage.metrics import structural_similarity as ssim
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+import json
+import argparse
+import pandas as pd
+import os
+import openpyxl
+
+sys.path.append(os.getcwd())
+warnings.filterwarnings("ignore")
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+warnings.filterwarnings('ignore')  # 不显示warnings
+torch.backends.cuda.enable_mem_efficient_sdp(False)
+torch.backends.cuda.enable_flash_sdp(False)
+
+def image_read_cv2(path, mode='RGB'):
+    img_BGR = cv2.imread(path).astype('float32')
+    assert mode == 'RGB' or mode == 'GRAY' or mode == 'YCrCb', 'mode error'
+    if mode == 'RGB':
+        img = cv2.cvtColor(img_BGR, cv2.COLOR_BGR2RGB)
+    elif mode == 'GRAY':  # 读出来不完全是整数，若需要整数则要round
+        img = np.round(cv2.cvtColor(img_BGR, cv2.COLOR_BGR2GRAY))
+    elif mode == 'YCrCb':
+        img = cv2.cvtColor(img_BGR, cv2.COLOR_BGR2YCrCb)
+    return img
+
+
+class Evaluator():
+    @classmethod
+    def input_check(cls, imgF, imgA=None, imgB=None):  # 检查输入
+        if imgA is None:
+            assert type(imgF) == np.ndarray, 'type error'
+            assert len(imgF.shape) == 2, 'dimension error'
+        else:
+            assert type(imgF) == type(imgA) == type(imgB) == np.ndarray, 'type error'
+            # assert imgF.shape == imgA.shape == imgB.shape, 'shape error'
+            assert len(imgF.shape) == 2, 'dimension error'
+
+    @classmethod
+    def EN(cls, img):  # entropy
+        cls.input_check(img)
+        a = np.uint8(np.round(img)).flatten()
+        h = np.bincount(a) / a.shape[0]
+        return -sum(h * np.log2(h + (h == 0)))
+
+    @classmethod
+    def SD(cls, img):
+        cls.input_check(img)
+        return np.std(img)
+
+    @classmethod
+    def SF(cls, img):
+        cls.input_check(img)
+        return np.sqrt(np.mean((img[:, 1:] - img[:, :-1]) ** 2) + np.mean((img[1:, :] - img[:-1, :]) ** 2))
+
+    @classmethod
+    def AG(cls, img):  # Average gradient
+        cls.input_check(img)
+        Gx, Gy = np.zeros_like(img), np.zeros_like(img)
+
+        Gx[:, 0] = img[:, 1] - img[:, 0]
+        Gx[:, -1] = img[:, -1] - img[:, -2]
+        Gx[:, 1:-1] = (img[:, 2:] - img[:, :-2]) / 2
+
+        Gy[0, :] = img[1, :] - img[0, :]
+        Gy[-1, :] = img[-1, :] - img[-2, :]
+        Gy[1:-1, :] = (img[2:, :] - img[:-2, :]) / 2
+        return np.mean(np.sqrt((Gx ** 2 + Gy ** 2) / 2))
+
+    @classmethod
+    def MI(cls, image_F, image_A, image_B):
+        cls.input_check(image_F, image_A, image_B)
+        return skm.mutual_info_score(image_F.flatten(), image_A.flatten()) + skm.mutual_info_score(image_F.flatten(),
+                                                                                                   image_B.flatten())
+
+    @classmethod
+    def MSE(cls, image_F, image_A, image_B):  # MSE
+        cls.input_check(image_F, image_A, image_B)
+        return (np.mean((image_A - image_F) ** 2) + np.mean((image_B - image_F) ** 2)) / 2
+
+    @classmethod
+    def CC(cls, image_F, image_A, image_B):
+        cls.input_check(image_F, image_A, image_B)
+        rAF = np.sum((image_A - np.mean(image_A)) * (image_F - np.mean(image_F))) / np.sqrt(
+            (np.sum((image_A - np.mean(image_A)) ** 2)) * (np.sum((image_F - np.mean(image_F)) ** 2)))
+        rBF = np.sum((image_B - np.mean(image_B)) * (image_F - np.mean(image_F))) / np.sqrt(
+            (np.sum((image_B - np.mean(image_B)) ** 2)) * (np.sum((image_F - np.mean(image_F)) ** 2)))
+        return (rAF + rBF) / 2
+
+    @classmethod
+    def PSNR(cls, image_F, image_A, image_B):
+        cls.input_check(image_F, image_A, image_B)
+        return 10 * np.log10(np.max(image_F) ** 2 / cls.MSE(image_F, image_A, image_B))
+
+    @classmethod
+    def SCD(cls, image_F, image_A, image_B):  # The sum of the correlations of differences
+        cls.input_check(image_F, image_A, image_B)
+        imgF_A = image_F - image_A
+        imgF_B = image_F - image_B
+        corr1 = np.sum((image_A - np.mean(image_A)) * (imgF_B - np.mean(imgF_B))) / np.sqrt(
+            (np.sum((image_A - np.mean(image_A)) ** 2)) * (np.sum((imgF_B - np.mean(imgF_B)) ** 2)))
+        corr2 = np.sum((image_B - np.mean(image_B)) * (imgF_A - np.mean(imgF_A))) / np.sqrt(
+            (np.sum((image_B - np.mean(image_B)) ** 2)) * (np.sum((imgF_A - np.mean(imgF_A)) ** 2)))
+        return corr1 + corr2
+
+    @classmethod
+    def VIFF(cls, image_F, image_A, image_B):
+        cls.input_check(image_F, image_A, image_B)
+        return cls.compare_viff(image_A, image_F) + cls.compare_viff(image_B, image_F)
+
+    @classmethod
+    def compare_viff(cls, ref, dist):  # viff of a pair of pictures
+        sigma_nsq = 2
+        eps = 1e-10
+
+        num = 0.0
+        den = 0.0
+        for scale in range(1, 5):
+
+            N = 2 ** (4 - scale + 1) + 1
+            sd = N / 5.0
+
+            # Create a Gaussian kernel as MATLAB's
+            m, n = [(ss - 1.) / 2. for ss in (N, N)]
+            y, x = np.ogrid[-m:m + 1, -n:n + 1]
+            h = np.exp(-(x * x + y * y) / (2. * sd * sd))
+            h[h < np.finfo(h.dtype).eps * h.max()] = 0
+            sumh = h.sum()
+            if sumh != 0:
+                win = h / sumh
+
+            if scale > 1:
+                ref = convolve2d(ref, np.rot90(win, 2), mode='valid')
+                dist = convolve2d(dist, np.rot90(win, 2), mode='valid')
+                ref = ref[::2, ::2]
+                dist = dist[::2, ::2]
+
+            mu1 = convolve2d(ref, np.rot90(win, 2), mode='valid')
+            mu2 = convolve2d(dist, np.rot90(win, 2), mode='valid')
+            mu1_sq = mu1 * mu1
+            mu2_sq = mu2 * mu2
+            mu1_mu2 = mu1 * mu2
+            sigma1_sq = convolve2d(ref * ref, np.rot90(win, 2), mode='valid') - mu1_sq
+            sigma2_sq = convolve2d(dist * dist, np.rot90(win, 2), mode='valid') - mu2_sq
+            sigma12 = convolve2d(ref * dist, np.rot90(win, 2), mode='valid') - mu1_mu2
+
+            sigma1_sq[sigma1_sq < 0] = 0
+            sigma2_sq[sigma2_sq < 0] = 0
+
+            g = sigma12 / (sigma1_sq + eps)
+            sv_sq = sigma2_sq - g * sigma12
+
+            g[sigma1_sq < eps] = 0
+            sv_sq[sigma1_sq < eps] = sigma2_sq[sigma1_sq < eps]
+            sigma1_sq[sigma1_sq < eps] = 0
+
+            g[sigma2_sq < eps] = 0
+            sv_sq[sigma2_sq < eps] = 0
+
+            sv_sq[g < 0] = sigma2_sq[g < 0]
+            g[g < 0] = 0
+            sv_sq[sv_sq <= eps] = eps
+
+            num += np.sum(np.log10(1 + g * g * sigma1_sq / (sv_sq + sigma_nsq)))
+            den += np.sum(np.log10(1 + sigma1_sq / sigma_nsq))
+
+        vifp = num / den
+
+        if np.isnan(vifp):
+            return 1.0
+        else:
+            return vifp
+
+    @classmethod
+    def Qabf(cls, image_F, image_A, image_B):
+        cls.input_check(image_F, image_A, image_B)
+        gA, aA = cls.Qabf_getArray(image_A)
+        gB, aB = cls.Qabf_getArray(image_B)
+        gF, aF = cls.Qabf_getArray(image_F)
+        QAF = cls.Qabf_getQabf(aA, gA, aF, gF)
+        QBF = cls.Qabf_getQabf(aB, gB, aF, gF)
+
+        # 计算QABF
+        deno = np.sum(gA + gB)
+        nume = np.sum(np.multiply(QAF, gA) + np.multiply(QBF, gB))
+        return nume / deno
+
+    @classmethod
+    def Qabf_getArray(cls, img):
+        # Sobel Operator Sobel算子
+        h1 = np.array([[1, 2, 1], [0, 0, 0], [-1, -2, -1]]).astype(np.float32)
+        h2 = np.array([[0, 1, 2], [-1, 0, 1], [-2, -1, 0]]).astype(np.float32)
+        h3 = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]).astype(np.float32)
+
+        SAx = convolve2d(img, h3, mode='same')
+        SAy = convolve2d(img, h1, mode='same')
+        gA = np.sqrt(np.multiply(SAx, SAx) + np.multiply(SAy, SAy))
+        aA = np.zeros_like(img)
+        aA[SAx == 0] = math.pi / 2
+        aA[SAx != 0] = np.arctan(SAy[SAx != 0] / SAx[SAx != 0])
+        return gA, aA
+
+    @classmethod
+    def Qabf_getQabf(cls, aA, gA, aF, gF):
+        L = 1
+        Tg = 0.9994
+        kg = -15
+        Dg = 0.5
+        Ta = 0.9879
+        ka = -22
+        Da = 0.8
+        GAF, AAF, QgAF, QaAF, QAF = np.zeros_like(aA), np.zeros_like(aA), np.zeros_like(aA), np.zeros_like(
+            aA), np.zeros_like(aA)
+        GAF[gA > gF] = gF[gA > gF] / gA[gA > gF]
+        GAF[gA == gF] = gF[gA == gF]
+        GAF[gA < gF] = gA[gA < gF] / gF[gA < gF]
+        AAF = 1 - np.abs(aA - aF) / (math.pi / 2)
+        QgAF = Tg / (1 + np.exp(kg * (GAF - Dg)))
+        QaAF = Ta / (1 + np.exp(ka * (AAF - Da)))
+        QAF = QgAF * QaAF
+        return QAF
+
+    @classmethod
+    def SSIM(cls, image_F, image_A, image_B):
+        cls.input_check(image_F, image_A, image_B)
+        return ssim(image_F, image_A, data_range=255) + ssim(image_F, image_B, data_range=255)
+
+
+def VIFF(image_F, image_A, image_B):
+    refA = image_A
+    refB = image_B
+    dist = image_F
+
+    sigma_nsq = 2
+    eps = 1e-10
+    numA = 0.0
+    denA = 0.0
+    numB = 0.0
+    denB = 0.0
+    for scale in range(1, 5):
+        N = 2 ** (4 - scale + 1) + 1
+        sd = N / 5.0
+        # Create a Gaussian kernel as MATLAB's
+        m, n = [(ss - 1.) / 2. for ss in (N, N)]
+        y, x = np.ogrid[-m:m + 1, -n:n + 1]
+        h = np.exp(-(x * x + y * y) / (2. * sd * sd))
+        h[h < np.finfo(h.dtype).eps * h.max()] = 0
+        sumh = h.sum()
+        if sumh != 0:
+            win = h / sumh
+
+        if scale > 1:
+            refA = convolve2d(refA, np.rot90(win, 2), mode='valid')
+            refB = convolve2d(refB, np.rot90(win, 2), mode='valid')
+            dist = convolve2d(dist, np.rot90(win, 2), mode='valid')
+            refA = refA[::2, ::2]
+            refB = refB[::2, ::2]
+            dist = dist[::2, ::2]
+
+        mu1A = convolve2d(refA, np.rot90(win, 2), mode='valid')
+        mu1B = convolve2d(refB, np.rot90(win, 2), mode='valid')
+        mu2 = convolve2d(dist, np.rot90(win, 2), mode='valid')
+        mu1_sq_A = mu1A * mu1A
+        mu1_sq_B = mu1B * mu1B
+        mu2_sq = mu2 * mu2
+        mu1A_mu2 = mu1A * mu2
+        mu1B_mu2 = mu1B * mu2
+        sigma1A_sq = convolve2d(refA * refA, np.rot90(win, 2), mode='valid') - mu1_sq_A
+        sigma1B_sq = convolve2d(refB * refB, np.rot90(win, 2), mode='valid') - mu1_sq_B
+        sigma2_sq = convolve2d(dist * dist, np.rot90(win, 2), mode='valid') - mu2_sq
+        sigma12_A = convolve2d(refA * dist, np.rot90(win, 2), mode='valid') - mu1A_mu2
+        sigma12_B = convolve2d(refB * dist, np.rot90(win, 2), mode='valid') - mu1B_mu2
+
+        sigma1A_sq[sigma1A_sq < 0] = 0
+        sigma1B_sq[sigma1B_sq < 0] = 0
+        sigma2_sq[sigma2_sq < 0] = 0
+
+        gA = sigma12_A / (sigma1A_sq + eps)
+        gB = sigma12_B / (sigma1B_sq + eps)
+        sv_sq_A = sigma2_sq - gA * sigma12_A
+        sv_sq_B = sigma2_sq - gB * sigma12_B
+
+        gA[sigma1A_sq < eps] = 0
+        gB[sigma1B_sq < eps] = 0
+        sv_sq_A[sigma1A_sq < eps] = sigma2_sq[sigma1A_sq < eps]
+        sv_sq_B[sigma1B_sq < eps] = sigma2_sq[sigma1B_sq < eps]
+        sigma1A_sq[sigma1A_sq < eps] = 0
+        sigma1B_sq[sigma1B_sq < eps] = 0
+
+        gA[sigma2_sq < eps] = 0
+        gB[sigma2_sq < eps] = 0
+        sv_sq_A[sigma2_sq < eps] = 0
+        sv_sq_B[sigma2_sq < eps] = 0
+
+        sv_sq_A[gA < 0] = sigma2_sq[gA < 0]
+        sv_sq_B[gB < 0] = sigma2_sq[gB < 0]
+        gA[gA < 0] = 0
+        gB[gB < 0] = 0
+        sv_sq_A[sv_sq_A <= eps] = eps
+        sv_sq_B[sv_sq_B <= eps] = eps
+
+        numA += np.sum(np.log10(1 + gA * gA * sigma1A_sq / (sv_sq_A + sigma_nsq)))
+        numB += np.sum(np.log10(1 + gB * gB * sigma1B_sq / (sv_sq_B + sigma_nsq)))
+        denA += np.sum(np.log10(1 + sigma1A_sq / sigma_nsq))
+        denB += np.sum(np.log10(1 + sigma1B_sq / sigma_nsq))
+
+    vifpA = numA / denA
+    vifpB = numB / denB
+
+    if np.isnan(vifpA):
+        vifpA = 1
+    if np.isnan(vifpB):
+        vifpB = 1
+    return vifpA + vifpB
+
+
+parser = argparse.ArgumentParser(description="Test FDFusion on LLVIP dataset")
+parser.add_argument('--model_path', type=str, default='07-09-11-41_lr_0.0001_module__batch_1', help='Path to the pre-trained model')
+parser.add_argument('--dataset_name', type=str, default='LLVIP', help='Name of the dataset')
+parser.add_argument('--pth_epoch', type=str, default='70', help='Checkpoint epoch to load')
+args = parser.parse_args()
+model_path = args.model_path
+dataset_name = args.dataset_name
+pth_epoch = args.pth_epoch
+
+with open(os.path.join(r"./VLFDataset_h5", dataset_name + '_split.json'), "r") as f:
+    splits = json.load(f)
+
+testloader = DataLoader(
+    BinaryDataset_withText_Mask(os.path.join(r"./VLFDataset_h5", dataset_name + '_VI+IR+Mask+text.h5'),
+                                keys=splits['test'], dataset=dataset_name),
+    batch_size=1,
+    shuffle=True,
+    drop_last=True,
+    num_workers=0,
+)
+
+
+ckpt_path = os.path.join(r'./exp_LLVIP', model_path, "model", "ckpt_" + pth_epoch + '.pth')
+save_path = os.path.join(r"./output", model_path, "ckpt_" + pth_epoch)
+os.makedirs(save_path, exist_ok=True)
+
+
+print("-------------------评估开始-------------------")
+evaluator_sum = {
+    "EN": 0,
+    "SD": 0,
+    "SF": 0,
+    "AG": 0,
+    "MI": 0,
+    "MSE": 0,
+    "CC": 0,
+    "PSNR": 0,
+    "SCD": 0,
+    "VIFF": 0,
+    "Qabf": 0,
+    "SSIM": 0,
+    # "new_viff": 0
+}
+for data_IR, data_VIS, textA, textB, mask, index in tqdm(testloader):
+    vi = data_VIS.squeeze().numpy() * 255.0
+    ir = data_IR.squeeze().numpy() * 255.0
+    fi = image_read_cv2(os.path.join(save_path, index[0] + '.png'), 'GRAY')
+
+    evaluator_sum["EN"] += Evaluator.EN(fi)
+    evaluator_sum["SD"] += Evaluator.SD(fi)
+    evaluator_sum["SF"] += Evaluator.SF(fi)
+    evaluator_sum["AG"] += Evaluator.AG(fi)
+    # evaluator_sum["MI"] += Evaluator.MI(fi, ir, vi)
+    # evaluator_sum["MSE"] += Evaluator.MSE(fi, ir, vi)
+    # evaluator_sum["CC"] += Evaluator.CC(fi, ir, vi)
+    # evaluator_sum["PSNR"] += Evaluator.PSNR(fi, ir, vi)
+    # evaluator_sum["SCD"] += Evaluator.SCD(fi, ir, vi)
+    evaluator_sum["VIFF"] += Evaluator.VIFF(fi, ir, vi)
+    evaluator_sum["Qabf"] += Evaluator.Qabf(fi, ir, vi)
+    # evaluator_sum["SSIM"] += Evaluator.SSIM(fi, ir, vi)
+
+evaluator_avg = {key: value / len(testloader) for key, value in evaluator_sum.items()}
+
+print("平均评估结果：")
+for key, value in evaluator_avg.items():
+    print(f"{key}: {value}")
+
+
+def save_results_to_excel(results, epoch, filename="results.xlsx", sheet_name="llvip"):
+    """
+    results: 包含评估指标的字典，如 {'EN': 6.73, 'SD': 43.22, ...}
+    epoch: 当前的 epoch 编号
+    """
+    # 1. 将结果转化为 DataFrame，并添加 epoch 列
+    df_new = pd.DataFrame([results])
+    df_new.insert(0, 'epoch', epoch)
+    
+    # 2. 如果文件不存在，直接创建；如果存在，读取并追加
+    if not os.path.exists(filename):
+        # 创建一个 Excel writer，写入 sheet
+        with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+            df_new.to_excel(writer, sheet_name=sheet_name, index=False)
+    else:
+        # 读取已有的 excel
+        book = openpyxl.load_workbook(filename)
+        
+        if sheet_name in book.sheetnames:
+            # 读取 sheet 并追加数据
+            df_old = pd.read_excel(filename, sheet_name=sheet_name)
+            df_combined = pd.concat([df_old, df_new], ignore_index=True)
+            with pd.ExcelWriter(filename, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+                df_combined.to_excel(writer, sheet_name=sheet_name, index=False)
+        else:
+            # 如果 sheet 不存在，则直接写入新 sheet
+            with pd.ExcelWriter(filename, engine='openpyxl', mode='a') as writer:
+                df_new.to_excel(writer, sheet_name=sheet_name, index=False)
+
+
+
+save_results_to_excel(evaluator_avg, pth_epoch, filename="fusion_results.xlsx")
