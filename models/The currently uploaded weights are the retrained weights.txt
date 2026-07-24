@@ -1,1 +1,0 @@
-The currently uploaded weights are the retrained weights.
